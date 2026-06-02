@@ -2,7 +2,6 @@ const AdmZip = require('adm-zip');
 const { createClient } = require('@supabase/supabase-js');
 const Anthropic = require('@anthropic-ai/sdk');
 
-/* ─ 날짜 유틸 ─ */
 const fmt = d => d.toISOString().slice(0,10).replace(/-/g,'');
 
 function getRange() {
@@ -12,12 +11,11 @@ function getRange() {
   return { bgn_de: fmt(start), end_de: fmt(end) };
 }
 
-/* ─ DART 목록 조회 ─ */
+/* ─ DART 목록 조회 (필터 없이 전체 → 코드로 직접 필터링) ─ */
 async function getDartList(dartKey, bgn_de, end_de) {
   const url =
     `https://opendart.fss.or.kr/api/list.json` +
     `?crtfc_key=${dartKey}` +
-    `&pblntf_detail_ty=A001` +
     `&bgn_de=${bgn_de}&end_de=${end_de}` +
     `&page_count=100&sort=date&sort_mth=asc`;
   const res = await fetch(url);
@@ -26,13 +24,27 @@ async function getDartList(dartKey, bgn_de, end_de) {
   return data.list || [];
 }
 
-/* ─ 필터링 ─ */
+/* ─ 필터링 ─
+   허용: 증권신고서(지분증권) + [기재정정] 증권신고서(지분증권)
+   제외: 분기/반기/사업보고서, 유상증자, 채무증권, 스팩, 이미상장
+─ */
 function isRelevantIPO(f) {
+  const report = f.report_nm || '';
+  const corp   = f.corp_name || '';
+
+  // 증권신고서(지분증권) 또는 [기재정정] 증권신고서(지분증권)만 허용
+  const isSecReg = report.includes('증권신고서(지분증권)');
+  if (!isSecReg) return false;
+
+  // 유상증자 제외
+  if (/유상증자/.test(report)) return false;
+
+  // 이미 상장된 기업 제외 (stock_code 있으면 기상장)
   if (f.stock_code && f.stock_code.trim()) return false;
-  const corp   = f.corp_name  || '';
-  const report = f.report_nm  || '';
-  if (/스팩|SPAC|기업인수목적/.test(corp))  return false;
-  if (/유상증자/.test(report))              return false;
+
+  // 스팩 / 기업인수목적 제외
+  if (/스팩|SPAC|기업인수목적/.test(corp)) return false;
+
   return true;
 }
 
@@ -87,7 +99,6 @@ async function parseClaude(anthropic, text, corpName) {
 
 /* ─ 메인 핸들러 ─ */
 const handler = async (event) => {
-  /* 보안 확인 */
   const headers = event.headers || {};
   const qs = event.queryStringParameters || {};
   const token = headers['x-cron-token'] || qs.token;
@@ -106,14 +117,13 @@ const handler = async (event) => {
 
     const list     = await getDartList(dartKey, bgn_de, end_de);
     const relevant = list.filter(isRelevantIPO);
-    console.log(`[DART] 전체 ${list.length}건 → IPO 해당 ${relevant.length}건`);
+    console.log(`[DART] 전체 ${list.length}건 → IPO 증권신고서(지분증권) ${relevant.length}건`);
 
     const newOnes = relevant.filter(f => !f.report_nm.startsWith('[기재정정]'));
     const amended = relevant.filter(f =>  f.report_nm.startsWith('[기재정정]'));
 
     const results = { added:[], updated:[], skipped:[], errors:[] };
 
-    /* 신규 처리 */
     for (const f of newOnes) {
       await new Promise(r => setTimeout(r, 1500));
       try {
@@ -142,7 +152,6 @@ const handler = async (event) => {
       }
     }
 
-    /* 기재정정 처리 */
     for (const f of amended) {
       await new Promise(r => setTimeout(r, 1500));
       try {
