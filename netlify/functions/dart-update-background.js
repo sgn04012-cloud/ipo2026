@@ -30,7 +30,7 @@ async function getDartList(dartKey, bgn_de, end_de) {
     while (true) {
       const url =
         `https://opendart.fss.or.kr/api/list.json` +
-        `?crtfc_key=${dartKey}&bgn_de=${s}&end_de=${e}` +
+        `?crtfc_key=${dartKey}&pblntf_detail_ty=C001&bgn_de=${s}&end_de=${e}` +
         `&page_no=${page}&page_count=100&sort=date&sort_mth=asc`;
       const res  = await fetch(url);
       const data = await res.json();
