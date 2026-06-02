@@ -1,40 +1,56 @@
-/**
- * DART IPO 자동 업데이트
- * 
- * 첫 실행 (2026년 전체): ?full=true&token=xxx
- * 정기 실행 (매월 1·15일): ?token=xxx  ← cron-job.org가 자동 호출
- */
-
 const AdmZip   = require('adm-zip');
 const { createClient } = require('@supabase/supabase-js');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const fmt = d => d.toISOString().slice(0,10).replace(/-/g,'');
 
-/* ─ DART 목록 조회 (페이지 전체 순회) ─ */
+/* ─ 날짜 범위를 월별 청크로 분할 ─ */
+function monthlyChunks(bgnStr, endStr) {
+  const parse = s => new Date(s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8));
+  const chunks = [];
+  let cur = parse(bgnStr);
+  const fin = parse(endStr);
+  while (cur <= fin) {
+    const s = fmt(cur);
+    const last = new Date(cur.getFullYear(), cur.getMonth()+1, 0); // 월말
+    const e = fmt(last > fin ? fin : last);
+    chunks.push({ s, e });
+    cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1);
+  }
+  return chunks;
+}
+
+/* ─ DART 목록 조회 (월별 분할 + 페이지 순회) ─ */
 async function getDartList(dartKey, bgn_de, end_de) {
-  let page = 1, all = [];
-  while (true) {
-    const url =
-      `https://opendart.fss.or.kr/api/list.json` +
-      `?crtfc_key=${dartKey}` +
-      `&bgn_de=${bgn_de}&end_de=${end_de}` +
-      `&page_no=${page}&page_count=100&sort=date&sort_mth=asc`;
-    const res  = await fetch(url);
-    const data = await res.json();
-    if (data.status !== '000') break;
-    all = all.concat(data.list || []);
-    if (page >= (data.total_page || 1)) break;
-    page++;
-    await new Promise(r => setTimeout(r, 500));
+  const chunks = monthlyChunks(bgn_de, end_de);
+  let all = [];
+
+  for (const { s, e } of chunks) {
+    let page = 1;
+    while (true) {
+      const url =
+        `https://opendart.fss.or.kr/api/list.json` +
+        `?crtfc_key=${dartKey}&bgn_de=${s}&end_de=${e}` +
+        `&page_no=${page}&page_count=100&sort=date&sort_mth=asc`;
+      const res  = await fetch(url);
+      const data = await res.json();
+      if (data.status === '013') { break; } // 해당 기간 데이터 없음
+      if (data.status !== '000') {
+        console.log(`[DART 응답] ${s}~${e} status=${data.status} msg=${data.message}`);
+        break;
+      }
+      all = all.concat(data.list || []);
+      console.log(`[DART] ${s}~${e} p${page} → ${(data.list||[]).length}건`);
+      if (page >= (data.total_page || 1)) break;
+      page++;
+      await new Promise(r => setTimeout(r, 400));
+    }
+    await new Promise(r => setTimeout(r, 400));
   }
   return all;
 }
 
-/* ─ 필터 ─
-   허용: 증권신고서(지분증권), [기재정정] 증권신고서(지분증권)
-   제외: 유상증자, 스팩, 기업인수목적, 채무증권, 이미상장
-─ */
+/* ─ 필터 ─ */
 function isRelevantIPO(f) {
   const report = f.report_nm || '';
   const corp   = f.corp_name || '';
@@ -65,7 +81,7 @@ async function getDocText(rcept_no, dartKey) {
     if (t.length > text.length) text = t;
   }
   const idx = text.indexOf('인수인의 의견');
-  return idx > -1 ? text.slice(Math.max(0, idx-500), idx+79500) : text.slice(0, 80000);
+  return idx > -1 ? text.slice(Math.max(0,idx-500), idx+79500) : text.slice(0, 80000);
 }
 
 /* ─ Claude 파싱 ─ */
@@ -85,7 +101,7 @@ async function parseClaude(anthropic, text, corpName) {
 텍스트: ${text}`
     }]
   });
-  const raw = msg.content.map(c => c.text||'').join('').replace(/```json|```/g,'').trim();
+  const raw = msg.content.map(c=>c.text||'').join('').replace(/```json|```/g,'').trim();
   return JSON.parse(raw);
 }
 
@@ -99,7 +115,6 @@ const handler = async (event) => {
     return { statusCode: 401, body: 'Unauthorized' };
   }
 
-  /* full=true 면 2026년 전체, 아니면 최근 17일 */
   const isFullRun = qs.full === 'true';
   const end   = new Date();
   const start = isFullRun ? new Date('2026-01-01') : new Date(Date.now() - 17*24*60*60*1000);
@@ -109,47 +124,37 @@ const handler = async (event) => {
   const supabase  = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  console.log(`[시작] ${isFullRun ? '전체(2026년~)' : '증분'} 조회: ${bgn_de}~${end_de}`);
+  console.log(`[시작] ${isFullRun?'전체(2026년~)':'증분'} ${bgn_de}~${end_de}`);
 
   try {
     const list     = await getDartList(dartKey, bgn_de, end_de);
     const relevant = list.filter(isRelevantIPO);
-    console.log(`[DART] 전체 ${list.length}건 → 증권신고서(지분증권) ${relevant.length}건`);
+    console.log(`[필터 후] 증권신고서(지분증권) ${relevant.length}건`);
 
-    /* 신규 / 기재정정 분리 */
     const amended = relevant.filter(f =>  f.report_nm.startsWith('[기재정정]'));
     const newOnes = relevant.filter(f => !f.report_nm.startsWith('[기재정정]'));
 
     const results = { added:[], updated:[], skipped:[], errors:[] };
 
-    /* ── 신규 처리 ── */
+    /* 신규 */
     for (const f of newOnes) {
       await new Promise(r => setTimeout(r, 1200));
       try {
-        /* 이미 DB에 있으면 스킵 (기존 것은 수정신고 없는 한 재처리 안 함) */
         const { data: ex } = await supabase.from('ipo_companies')
           .select('id').eq('dart_rcept_no', f.rcept_no).maybeSingle();
         if (ex) { results.skipped.push(f.corp_name); continue; }
 
-        /* 회사명으로도 중복 확인 (다른 rcept_no로 이미 있을 수 있음) */
         const { data: byName } = await supabase.from('ipo_companies')
-          .select('id, amended').eq('name', f.corp_name).maybeSingle();
-        if (byName && !byName.amended) {
-          /* 기존에 있고 정정이 아직 안 온 경우: rcept_no만 업데이트 */
-          results.skipped.push(f.corp_name);
-          continue;
-        }
+          .select('id').eq('name', f.corp_name).maybeSingle();
+        if (byName) { results.skipped.push(f.corp_name); continue; }
 
         const text   = await getDocText(f.rcept_no, dartKey);
         const parsed = await parseClaude(anthropic, text, f.corp_name);
 
         await supabase.from('ipo_companies').insert({
-          dart_rcept_no: f.rcept_no,
-          ...parsed,
-          st: 'prog', ld: '',
-          cp: null, bp: null, lc: null,
-          la: false, ln: '', tb: false,
-          amended: false,
+          dart_rcept_no: f.rcept_no, ...parsed,
+          st:'prog', ld:'', cp:null, bp:null, lc:null,
+          la:false, ln:'', tb:false, amended:false,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         });
@@ -157,47 +162,34 @@ const handler = async (event) => {
         console.log(`[추가] ${f.corp_name}`);
       } catch(e) {
         results.errors.push({ name: f.corp_name, error: e.message });
-        console.error(`[오류-신규] ${f.corp_name}:`, e.message);
+        console.error(`[오류] ${f.corp_name}:`, e.message);
       }
     }
 
-    /* ── [기재정정] 처리 ── */
+    /* 기재정정 */
     for (const f of amended) {
       await new Promise(r => setTimeout(r, 1200));
       try {
-        const corpName = f.corp_name;
-        const text     = await getDocText(f.rcept_no, dartKey);
-        const parsed   = await parseClaude(anthropic, text, corpName);
+        const text   = await getDocText(f.rcept_no, dartKey);
+        const parsed = await parseClaude(anthropic, text, f.corp_name);
 
-        /* 기존 레코드를 정정 내용으로 덮어쓰기 */
-        const { data: existing } = await supabase.from('ipo_companies')
-          .select('id').eq('name', corpName).maybeSingle();
+        const { data: ex } = await supabase.from('ipo_companies')
+          .select('id').eq('name', f.corp_name).maybeSingle();
 
-        if (existing) {
+        if (ex) {
           await supabase.from('ipo_companies')
-            .update({
-              dart_rcept_no: f.rcept_no,
-              ...parsed,
-              amended:    true,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', existing.id);
-          results.updated.push(corpName);
-          console.log(`[기재정정 업데이트] ${corpName}`);
+            .update({ dart_rcept_no:f.rcept_no, ...parsed, amended:true, updated_at:new Date().toISOString() })
+            .eq('id', ex.id);
+          results.updated.push(f.corp_name);
+          console.log(`[기재정정] ${f.corp_name}`);
         } else {
-          /* 원래 신고서가 DB에 없는 경우 (정정이 먼저 감지된 경우) → 신규 삽입 */
           await supabase.from('ipo_companies').insert({
-            dart_rcept_no: f.rcept_no,
-            ...parsed,
-            st: 'prog', ld: '',
-            cp: null, bp: null, lc: null,
-            la: false, ln: '', tb: false,
-            amended: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+            dart_rcept_no:f.rcept_no, ...parsed,
+            st:'prog', ld:'', cp:null, bp:null, lc:null,
+            la:false, ln:'', tb:false, amended:true,
+            created_at:new Date().toISOString(), updated_at:new Date().toISOString()
           });
-          results.added.push(corpName + '(정정)');
-          console.log(`[기재정정 신규삽입] ${corpName}`);
+          results.added.push(f.corp_name+'(정정)');
         }
       } catch(e) {
         results.errors.push({ name: f.corp_name, error: e.message });
@@ -205,23 +197,18 @@ const handler = async (event) => {
       }
     }
 
-    /* ── 실행 로그 저장 ── */
     await supabase.from('update_logs').insert({
-      run_at:  new Date().toISOString(),
-      bgn_de, end_de,
-      added:   results.added.length,
-      updated: results.updated.length,
-      skipped: results.skipped.length,
-      errors:  results.errors.length,
-      detail:  JSON.stringify(results)
+      run_at:new Date().toISOString(), bgn_de, end_de,
+      added:results.added.length, updated:results.updated.length,
+      skipped:results.skipped.length, errors:results.errors.length,
+      detail:JSON.stringify(results)
     });
 
     console.log('[완료]', JSON.stringify(results));
-    return { statusCode: 200, body: JSON.stringify({ ok: true, ...results }) };
-
+    return { statusCode:200, body:JSON.stringify({ ok:true, ...results }) };
   } catch(e) {
     console.error('[치명오류]', e.message);
-    return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
+    return { statusCode:500, body:JSON.stringify({ error:e.message }) };
   }
 };
 
