@@ -1,12 +1,4 @@
 [build]
+  command = "npm install"
   publish = "."
   functions = "netlify/functions"
-
-[functions]
-  # background function: 타임아웃 15분 (여러 기업 순차 처리 가능)
-  node_bundler = "esbuild"
-
-[[headers]]
-  for = "/*"
-  [headers.values]
-    Access-Control-Allow-Origin = "*"
