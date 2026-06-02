@@ -1,0 +1,12 @@
+{
+  "name": "ipo-dart-auto",
+  "version": "1.0.0",
+  "description": "DART IPO 자동 수집 파이프라인",
+  "engines": { "node": "18" },
+  "dependencies": {
+    "adm-zip": "^0.5.10",
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@supabase/supabase-js": "^2.49.4",
+    "node-fetch": "^2.7.0"
+  }
+}
