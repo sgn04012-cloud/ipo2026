@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>채용 일정 캘린더</title>
+<style>
+:root{--navy:#1a3a6b;--navy2:#2451a3;--bg:#f5f6fa;--surface:#fff;--border:#e8eaf0;--text:#1c1c2e;--sub:#6b7280;--start:#3b82f6;--end:#ef4444;--int:#10b981;--start-bg:#eff6ff;--end-bg:#fef2f2;--int-bg:#f0fdf4;--r:12px;--sh:0 2px 12px rgba(0,0,0,.07)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+header{background:var(--navy);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+header h1{color:#fff;font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px}
+#auth-area{display:flex;align-items:center;gap:10px}
+#user-info{font-size:12px;color:rgba(255,255,255,.8);display:none;align-items:center;gap:6px}
+#sync-dot{width:7px;height:7px;border-radius:50%;background:#ef4444;display:inline-block}
+#sync-dot.ok{background:#86efac}
+#btn-login{background:#fff;color:var(--navy);border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px}
+#btn-login:hover{opacity:.85}
+#btn-logout{background:transparent;color:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:5px 12px;font-size:11px;cursor:pointer;display:none}
+#btn-logout:hover{background:rgba(255,255,255,.1)}
+#api-key-wrap{display:none;align-items:center;gap:6px}
+#api-key-wrap input{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:6px 10px;font-size:11px;color:#fff;width:200px;font-family:monospace}
+#api-key-wrap input::placeholder{color:rgba(255,255,255,.4)}
+#api-key-wrap input:focus{outline:none;border-color:rgba(255,255,255,.6)}
+#api-key-wrap button{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:5px 10px;font-size:11px;cursor:pointer;white-space:nowrap}
+#api-key-wrap button:hover{background:rgba(255,255,255,.25)}
+#api-key-dot{width:7px;height:7px;border-radius:50%;background:#ef4444;display:inline-block;flex-shrink:0}
+#api-key-dot.ok{background:#86efac}
+
+/* LOGIN */
+#login-screen{max-width:440px;margin:60px auto;background:var(--surface);border-radius:16px;box-shadow:var(--sh);padding:36px 32px;display:none}
+#login-screen.show{display:block}
+#login-screen h2{font-size:20px;font-weight:800;color:var(--navy);margin-bottom:8px}
+#login-screen p{font-size:13px;color:var(--sub);margin-bottom:24px;line-height:1.6}
+.steps{background:var(--bg);border-radius:10px;padding:14px 16px;margin-bottom:22px}
+.steps li{font-size:12px;color:var(--sub);margin-bottom:5px;list-style:decimal;margin-left:16px;line-height:1.5}
+.steps li:last-child{margin-bottom:0}
+.steps strong{color:var(--text)}
+.f-label{display:block;font-size:10px;font-weight:700;color:var(--sub);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
+.tok-wrap{display:flex;gap:6px}
+.tok-wrap input{flex:1;border:1px solid var(--border);border-radius:8px;padding:9px 10px;font-size:12px;font-family:monospace;color:var(--text)}
+.tok-wrap input:focus{outline:none;border-color:var(--navy2)}
+.tok-wrap button{background:var(--navy);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+.tok-wrap button:hover{background:var(--navy2)}
+#tok-st{font-size:11px;margin-top:6px;min-height:16px}
+
+/* APP */
+#app{display:none;grid-template-columns:1fr 340px;gap:20px;max-width:1200px;margin:0 auto;padding:20px}
+#app.show{display:grid}
+@media(max-width:860px){#app.show{grid-template-columns:1fr}}
+
+/* CALENDAR */
+.cal-card{background:var(--surface);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
+.cal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)}
+.cal-head h2{font-size:16px;font-weight:700;color:var(--navy)}
+.cal-nav button{width:30px;height:30px;border:1px solid var(--border);border-radius:7px;background:#fff;cursor:pointer;font-size:15px;color:var(--sub);display:inline-flex;align-items:center;justify-content:center;transition:all .15s}
+.cal-nav button:hover{background:var(--navy);color:#fff;border-color:var(--navy)}
+.cal-grid{padding:10px}
+.wdays{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:3px}
+.wday{text-align:center;font-size:10px;font-weight:600;color:var(--sub);padding:5px 0}
+.days{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.day{min-height:68px;border-radius:7px;padding:3px;transition:background .1s}
+.day:hover{background:var(--bg)}
+.day.other .dn{color:#d1d5db}
+.day.today .dn{background:var(--navy);color:#fff;border-radius:50%}
+.dn{font-size:11px;font-weight:600;width:22px;height:22px;display:flex;align-items:center;justify-content:center;margin-bottom:2px}
+.devs{display:flex;flex-direction:column;gap:2px}
+.chip{font-size:8.5px;font-weight:700;padding:2px 4px;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}
+.chip.서류시작{background:var(--start-bg);color:var(--start)}
+.chip.서류마감{background:var(--end-bg);color:var(--end)}
+.chip.면접{background:var(--int-bg);color:var(--int)}
+.legend{display:flex;gap:14px;padding:10px 18px;border-top:1px solid var(--border)}
+.li{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--sub)}
+.ld{width:8px;height:8px;border-radius:2px}
+.ld.서류시작{background:var(--start)}
+.ld.서류마감{background:var(--end)}
+.ld.면접{background:var(--int)}
+
+/* SIDEBAR */
+.sidebar{display:flex;flex-direction:column;gap:14px}
+.add-card{background:var(--surface);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
+.tabs{display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid var(--border)}
+.tb{padding:10px 4px;border:none;background:none;font-size:12px;font-weight:600;color:var(--sub);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.tb.active{color:var(--navy);border-bottom-color:var(--navy)}
+.tb:hover:not(.active){background:var(--bg)}
+.tp{display:none;padding:14px}
+.tp.active{display:block}
+
+.fr{margin-bottom:9px}
+.fr label{display:block;font-size:10px;font-weight:700;color:var(--sub);margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px}
+.fr input,.fr select,.fr textarea{width:100%;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;color:var(--text);background:#fff}
+.fr input:focus,.fr select:focus,.fr textarea:focus{outline:none;border-color:var(--navy2)}
+.fr textarea{resize:vertical;min-height:80px;font-size:12px}
+.fr textarea::placeholder{color:#9ca3af}
+.fhalf{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.uwrap{display:flex;gap:6px;margin-bottom:9px}
+.uwrap input{flex:1;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--text)}
+.uwrap input:focus{outline:none;border-color:var(--navy2)}
+.btn{width:100%;background:var(--navy);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:background .15s;margin-top:4px}
+.btn:hover{background:var(--navy2)}
+.btn:disabled{background:#9ca3af;cursor:not-allowed}
+.btn.sm{width:auto;padding:8px 14px;margin:0}
+.st{font-size:11px;padding:7px 10px;border-radius:7px;margin:6px 0;display:none}
+.st.ok{background:#f0fdf4;color:#166534;display:block}
+.st.err{background:#fef2f2;color:#991b1b;display:block}
+.st.info{background:#f0f9ff;color:#0369a1;display:block}
+
+/* PREVIEW */
+.prev{background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 12px;margin-bottom:8px;display:none}
+.prev h5{font-size:10px;font-weight:700;color:#0369a1;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.pi{border-bottom:1px solid #bae6fd;padding-bottom:8px;margin-bottom:8px}
+.pi:last-child{border:none;margin:0;padding:0}
+.pi-co{font-size:13px;font-weight:700;color:var(--navy)}
+.pi-job{font-size:11px;color:var(--sub);margin-bottom:4px}
+.pi-tags{display:flex;gap:5px;flex-wrap:wrap}
+.pt{font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px}
+.pt.서류시작{background:var(--start-bg);color:var(--start)}
+.pt.서류마감{background:var(--end-bg);color:var(--end)}
+.pt.면접{background:var(--int-bg);color:var(--int)}
+
+/* DROP */
+.dz{border:2px dashed var(--border);border-radius:10px;padding:18px;text-align:center;cursor:pointer;margin-bottom:9px;transition:all .15s}
+.dz:hover,.dz.over{border-color:var(--navy2);background:#eff6ff}
+.dz p{font-size:12px;color:var(--sub)}
+.dz-icon{font-size:22px;display:block;margin-bottom:5px}
+#img-prev{width:100%;border-radius:8px;margin-bottom:8px;display:none;max-height:130px;object-fit:cover}
+
+/* LIST */
+.list-card{background:var(--surface);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
+.ch{padding:13px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:var(--navy);display:flex;align-items:center;justify-content:space-between}
+.ch span{font-size:11px;font-weight:400;color:var(--sub)}
+.evlist{max-height:300px;overflow-y:auto}
+.evlist::-webkit-scrollbar{width:3px}
+.evlist::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.evi{padding:9px 14px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:8px}
+.evi:hover{background:var(--bg)}
+.evi:last-child{border:none}
+.etag{font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;white-space:nowrap;flex-shrink:0;margin-top:2px}
+.etag.서류시작{background:var(--start-bg);color:var(--start)}
+.etag.서류마감{background:var(--end-bg);color:var(--end)}
+.etag.면접{background:var(--int-bg);color:var(--int)}
+.eb{flex:1;min-width:0}
+.eb-co{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eb-job{font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eb-date{font-size:10px;color:var(--sub);margin-top:1px}
+.eb-link a{font-size:10px;color:var(--navy2);text-decoration:none}
+.eb-link a:hover{text-decoration:underline}
+.bdel{background:none;border:none;color:#d1d5db;cursor:pointer;font-size:13px;padding:1px;flex-shrink:0;transition:color .15s}
+.bdel:hover{color:#ef4444}
+.empty{padding:28px;text-align:center;color:var(--sub);font-size:12px}
+.empty span{font-size:26px;display:block;margin-bottom:6px}
+
+#saving{position:fixed;bottom:20px;right:20px;background:var(--navy);color:#fff;border-radius:10px;padding:10px 16px;font-size:12px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,.2);display:none;z-index:999}
+#saving.show{display:block}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📋 채용 일정 캘린더</h1>
+  <div id="auth-area">
+    <div id="user-info"><span id="sync-dot"></span><span id="uname"></span></div>
+    <button id="btn-login" onclick="showLogin()">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub 로그인
+    </button>
+    <div id="api-key-wrap">
+      <span id="api-key-dot"></span>
+      <input type="password" id="claude-key" placeholder="Claude API 키 (sk-ant-...)">
+      <button onclick="saveApiKey()">저장</button>
+    </div>
+    <button id="btn-logout" onclick="logout()">로그아웃</button>
+  </div>
+</header>
+
+<div id="login-screen">
+  <h2>📋 채용 일정 캘린더</h2>
+  <p>GitHub Personal Access Token으로 로그인하면<br>데이터가 내 GitHub Gist에 자동 저장돼요.</p>
+  <div class="steps">
+    <ol>
+      <li>github.com → 우상단 프로필 → <strong>Settings</strong></li>
+      <li>왼쪽 하단 <strong>Developer settings</strong></li>
+      <li>Personal access tokens → <strong>Tokens (classic)</strong></li>
+      <li>Generate new token → 이름 입력 → <strong>gist</strong> 체크 → Generate</li>
+      <li>생성된 토큰(ghp_...) 복사 후 아래 입력</li>
+    </ol>
+  </div>
+  <label class="f-label">GitHub Personal Access Token</label>
+  <div class="tok-wrap">
+    <input type="password" id="tok" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+    <button onclick="loginWithToken()">연결</button>
+  </div>
+  <div id="tok-st"></div>
+</div>
+
+<div id="app">
+  <!-- CALENDAR -->
+  <div class="cal-card">
+    <div class="cal-head">
+      <h2 id="cal-title"></h2>
+      <div class="cal-nav">
+        <button onclick="cm(-1)">‹</button>
+        <button onclick="cm(1)" style="margin-left:4px">›</button>
+      </div>
+    </div>
+    <div class="cal-grid">
+      <div class="wdays">
+        <div class="wday" style="color:#ef4444">일</div>
+        <div class="wday">월</div><div class="wday">화</div>
+        <div class="wday">수</div><div class="wday">목</div>
+        <div class="wday">금</div>
+        <div class="wday" style="color:#3b82f6">토</div>
+      </div>
+      <div class="days" id="days"></div>
+    </div>
+    <div class="legend">
+      <div class="li"><div class="ld 서류시작"></div>서류시작</div>
+      <div class="li"><div class="ld 서류마감"></div>서류마감</div>
+      <div class="li"><div class="ld 면접"></div>면접</div>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="add-card">
+      <div class="tabs">
+        <button class="tb active" onclick="tab('url')">🔗 URL</button>
+        <button class="tb" onclick="tab('text')">📝 텍스트</button>
+        <button class="tb" onclick="tab('manual')">✏️ 직접</button>
+      </div>
+
+      <div class="tp active" id="tp-url">
+        <div class="uwrap">
+          <input type="url" id="url-inp" placeholder="채용공고 URL 붙여넣기">
+          <button class="btn sm" id="btn-fetch" onclick="fetchUrl()">분석</button>
+        </div>
+        <div class="st" id="url-st"></div>
+        <div class="prev" id="url-prev"></div>
+        <button class="btn" id="btn-url-add" onclick="addParsed('url')" style="display:none">✚ 일정 추가</button>
+      </div>
+
+      <div class="tp" id="tp-text">
+        <div class="fr"><textarea id="text-inp" placeholder="채용공고 텍스트 붙여넣기&#10;예) 서류마감: 6월 21일 / 시작: 6월 8일"></textarea></div>
+        <div class="dz" id="dz" onclick="document.getElementById('img-file').click()">
+          <span class="dz-icon">🖼️</span>
+          <p>공고 이미지 드래그 or 클릭</p>
+        </div>
+        <input type="file" id="img-file" accept="image/*" style="display:none" onchange="handleImg(event)">
+        <img id="img-prev" src="" alt="">
+        <div class="st" id="text-st"></div>
+        <div class="prev" id="text-prev"></div>
+        <button class="btn" id="btn-analyze" onclick="analyzeText()">✨ AI 분석</button>
+        <button class="btn" id="btn-text-add" onclick="addParsed('text')" style="display:none;margin-top:6px">✚ 일정 추가</button>
+      </div>
+
+      <div class="tp" id="tp-manual">
+        <div class="fr"><label>기업명</label><input id="m-co" type="text" placeholder="예) 한국투자신탁운용"></div>
+        <div class="fr"><label>직무</label><input id="m-job" type="text" placeholder="예) 리서치"></div>
+        <div class="fr"><label>일정 유형</label>
+          <select id="m-type">
+            <option value="서류시작">서류시작</option>
+            <option value="서류마감">서류마감</option>
+            <option value="면접">면접</option>
+          </select>
+        </div>
+        <div class="fhalf">
+          <div class="fr"><label>날짜</label><input id="m-date" type="date"></div>
+          <div class="fr"><label>시간</label><input id="m-time" type="time" value="23:59"></div>
+        </div>
+        <div class="fr"><label>링크 (선택)</label><input id="m-link" type="url" placeholder="https://..."></div>
+        <div class="st" id="manual-st"></div>
+        <button class="btn" onclick="addManual()">✚ 일정 추가</button>
+      </div>
+    </div>
+
+    <div class="list-card">
+      <div class="ch">≡ 등록된 일정 <span id="ev-cnt"></span></div>
+      <div class="evlist" id="evlist">
+        <div class="empty"><span>📭</span>등록된 일정이 없습니다</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="saving">💾 저장 중...</div>
+
+<script>
+let TOKEN='',GIST_ID='',CLAUDE_KEY='',events=[],parsed={url:null,text:null},imgB64=null,curY,curM,saveTimer=null;
+
+(async function(){
+  const n=new Date(); curY=n.getFullYear(); curM=n.getMonth();
+  document.getElementById('m-date').value=n.toISOString().split('T')[0];
+  setupDrop();
+  TOKEN=localStorage.getItem('gh_token')||'';
+  GIST_ID=localStorage.getItem('gist_id')||'';
+  CLAUDE_KEY=localStorage.getItem('claude_key')||'';
+  if(CLAUDE_KEY){
+    document.getElementById('claude-key').value=CLAUDE_KEY;
+    document.getElementById('api-key-dot').classList.add('ok');
+  }
+  if(TOKEN) await connect();
+  else showLogin();
+})();
+
+function saveApiKey(){
+  const k=document.getElementById('claude-key').value.trim();
+  if(!k)return;
+  CLAUDE_KEY=k;localStorage.setItem('claude_key',k);
+  document.getElementById('api-key-dot').classList.add('ok');
+  document.getElementById('claude-key').value=k;
+  alert('✅ Claude API 키가 저장됐습니다!');
+}
+
+function showLogin(){
+  document.getElementById('login-screen').classList.add('show');
+  document.getElementById('app').classList.remove('show');
+}
+
+async function loginWithToken(){
+  const t=document.getElementById('tok').value.trim();
+  if(!t) return;
+  setSt('tok-st','확인 중...','');
+  try{
+    const r=await fetch('https://api.github.com/user',{headers:{Authorization:'token '+t}});
+    if(!r.ok) throw new Error('토큰이 올바르지 않아요');
+    const u=await r.json();
+    TOKEN=t; localStorage.setItem('gh_token',t);
+    setSt('tok-st','✅ '+u.login+' 로그인 성공!','ok');
+    setTimeout(()=>connect(),500);
+  }catch(e){setSt('tok-st','❌ '+e.message,'err');}
+}
+
+async function connect(){
+  try{
+    const r=await fetch('https://api.github.com/user',{headers:{Authorization:'token '+TOKEN}});
+    if(!r.ok){TOKEN='';localStorage.removeItem('gh_token');showLogin();return;}
+    const u=await r.json();
+    document.getElementById('user-info').style.display='flex';
+    document.getElementById('uname').textContent=u.login;
+    document.getElementById('btn-login').style.display='none';
+    document.getElementById('btn-logout').style.display='block';
+    document.getElementById('api-key-wrap').style.display='flex';
+    document.getElementById('sync-dot').classList.add('ok');
+    document.getElementById('login-screen').classList.remove('show');
+    document.getElementById('app').classList.add('show');
+    await loadGist(); renderAll();
+  }catch(e){showLogin();}
+}
+
+function logout(){
+  TOKEN='';GIST_ID='';
+  localStorage.removeItem('gh_token');localStorage.removeItem('gist_id');
+  events=[];
+  document.getElementById('user-info').style.display='none';
+  document.getElementById('btn-login').style.display='flex';
+  document.getElementById('btn-logout').style.display='none';
+  document.getElementById('api-key-wrap').style.display='none';
+  document.getElementById('sync-dot').classList.remove('ok');
+  document.getElementById('app').classList.remove('show');
+  showLogin();
+}
+
+async function loadGist(){
+  if(GIST_ID){
+    try{
+      const r=await fetch('https://api.github.com/gists/'+GIST_ID,{headers:{Authorization:'token '+TOKEN}});
+      if(r.ok){
+        const d=await r.json();
+        const c=d.files['recruitment_events.json']?.content;
+        if(c) events=JSON.parse(c);
+        console.log('Gist 로드 완료, 일정 수:', events.length);
+        return;
+      }
+    }catch(e){console.error('Gist 로드 오류:',e);}
+  }
+  // 새 Gist 생성
+  console.log('새 Gist 생성 중...');
+  const r=await fetch('https://api.github.com/gists',{method:'POST',headers:{Authorization:'token '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({description:'채용 일정 캘린더',public:false,files:{'recruitment_events.json':{content:'[]'}}})});
+  const d=await r.json();
+  GIST_ID=d.id;
+  localStorage.setItem('gist_id',GIST_ID);
+  console.log('새 Gist 생성됨:', GIST_ID);
+}
+
+async function saveGist(){
+  if(!TOKEN) return;
+  if(!GIST_ID){
+    // Gist가 없으면 새로 만들고 저장
+    await loadGist();
+  }
+  const s=document.getElementById('saving');s.classList.add('show');
+  try{
+    const r=await fetch('https://api.github.com/gists/'+GIST_ID,{method:'PATCH',headers:{Authorization:'token '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({files:{'recruitment_events.json':{content:JSON.stringify(events,null,2)}}})});
+    if(!r.ok) throw new Error('저장 실패: '+r.status);
+    console.log('Gist 저장 완료, 일정 수:', events.length);
+  }catch(e){
+    console.error('저장 오류:',e);
+    alert('저장 오류: '+e.message);
+  }finally{
+    setTimeout(()=>s.classList.remove('show'),800);
+  }
+}
+function debSave(){clearTimeout(saveTimer);saveTimer=setTimeout(saveGist,500);}
+
+function cm(d){curM+=d;if(curM>11){curM=0;curY++;}if(curM<0){curM=11;curY--;}renderCalendar();}
+
+function renderCalendar(){
+  document.getElementById('cal-title').textContent=curY+'년 '+(curM+1)+'월';
+  const el=document.getElementById('days');el.innerHTML='';
+  const today=new Date();
+  const fd=new Date(curY,curM,1).getDay();
+  const dim=new Date(curY,curM+1,0).getDate();
+  const dipm=new Date(curY,curM,0).getDate();
+  const total=Math.ceil((fd+dim)/7)*7;
+  const evMap={};
+  events.forEach(ev=>{const d=new Date(ev.date);const k=d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate();if(!evMap[k])evMap[k]=[];evMap[k].push(ev);});
+  for(let i=0;i<total;i++){
+    const cell=document.createElement('div');cell.className='day';
+    let num,other=false,key;
+    if(i<fd){num=dipm-fd+i+1;other=true;const d=new Date(curY,curM-1,num);key=d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate();}
+    else if(i>=fd+dim){num=i-fd-dim+1;other=true;const d=new Date(curY,curM+1,num);key=d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate();}
+    else{num=i-fd+1;key=curY+'-'+curM+'-'+num;}
+    if(other)cell.classList.add('other');
+    if(!other&&today.getFullYear()===curY&&today.getMonth()===curM&&today.getDate()===num)cell.classList.add('today');
+    cell.innerHTML='<div class="dn">'+num+'</div><div class="devs"></div>';
+    const ec=cell.querySelector('.devs');
+    (evMap[key]||[]).slice(0,3).forEach(ev=>{const c=document.createElement('div');c.className='chip '+ev.type;c.textContent='['+ev.type+'] '+ev.company;c.title=ev.company+' · '+ev.job+'\n'+fmt(ev.date);ec.appendChild(c);});
+    if((evMap[key]||[]).length>3){const m=document.createElement('div');m.style.cssText='font-size:9px;color:var(--sub);padding:0 3px';m.textContent='+'+(evMap[key].length-3);ec.appendChild(m);}
+    el.appendChild(cell);
+  }
+}
+
+function renderList(){
+  const el=document.getElementById('evlist');const cnt=document.getElementById('ev-cnt');
+  if(!events.length){el.innerHTML='<div class="empty"><span>📭</span>등록된 일정이 없습니다</div>';cnt.textContent='';return;}
+  cnt.textContent=events.length+'개';
+  el.innerHTML=[...events].sort((a,b)=>new Date(a.date)-new Date(b.date)).map(ev=>`
+    <div class="evi">
+      <div class="etag ${ev.type}">${ev.type}</div>
+      <div class="eb">
+        <div class="eb-co">${ev.company}</div>
+        <div class="eb-job">${ev.job}</div>
+        <div class="eb-date">${fmt(ev.date)}</div>
+        ${ev.link?'<div class="eb-link"><a href="'+ev.link+'" target="_blank">🔗 공고 보기</a></div>':''}
+      </div>
+      <button class="bdel" onclick="delEv('${ev.id}')">✕</button>
+    </div>`).join('');
+}
+
+function renderAll(){renderCalendar();renderList();}
+
+async function delEv(id){events=events.filter(e=>e.id!==id);renderAll();debSave();}
+
+async function insertEvents(arr){arr.forEach(ev=>{ev.id=crypto.randomUUID();events.push(ev);});renderAll();debSave();}
+
+function tab(name){
+  document.querySelectorAll('.tb').forEach((b,i)=>b.classList.toggle('active',['url','text','manual'][i]===name));
+  document.querySelectorAll('.tp').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tp-'+name).classList.add('active');
+}
+
+async function callClaude(prompt,img=null){
+  if(!CLAUDE_KEY) throw new Error('Claude API 키를 먼저 헤더에 입력해주세요');
+  const content=[];
+  if(img)content.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:img}});
+  content.push({type:'text',text:prompt});
+  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':CLAUDE_KEY,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:1000,system:'한국 금융권 채용공고에서 일정 정보를 추출하세요.\nJSON 배열만 반환. 다른 텍스트 없이:\n[{"company":"기업명","job":"직무명","events":[{"type":"서류시작|서류마감|면접","date":"YYYY-MM-DDTHH:mm:ss"}],"link":"URL or null"}]\n시간 미기재시 T23:59:00.',messages:[{role:'user',content}]})});
+  if(!r.ok){const e=await r.json();throw new Error(e.error?.message||'API 오류');}
+  const d=await r.json();
+  return JSON.parse(d.content.map(c=>c.text||'').join('').replace(/```json|```/g,'').trim());
+}
+
+async function fetchUrl(){
+  const url=document.getElementById('url-inp').value.trim();if(!url)return;
+  const btn=document.getElementById('btn-fetch');btn.disabled=true;btn.textContent='분석중...';
+  setSt('url-st','⏳ 페이지 읽는 중...','info');
+  document.getElementById('btn-url-add').style.display='none';document.getElementById('url-prev').style.display='none';
+  try{
+    const r=await fetch('https://api.allorigins.win/get?url='+encodeURIComponent(url));
+    const j=await r.json();
+    const text=j.contents.replace(/<script[\s\S]*?<\/script>/gi,'').replace(/<style[\s\S]*?<\/style>/gi,'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').substring(0,3000);
+    const result=await callClaude('채용공고 URL: '+url+'\n\n'+text);
+    parsed.url=result;showPrev('url-prev',result);document.getElementById('btn-url-add').style.display='flex';
+    setSt('url-st','✅ '+result.length+'개 공고 분석 완료','ok');
+  }catch(e){setSt('url-st','❌ '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent='분석';}
+}
+
+async function analyzeText(){
+  const text=document.getElementById('text-inp').value.trim();
+  if(!text&&!imgB64)return;
+  const btn=document.getElementById('btn-analyze');btn.disabled=true;btn.textContent='분석중...';
+  setSt('text-st','⏳ AI 분석 중...','info');
+  document.getElementById('btn-text-add').style.display='none';document.getElementById('text-prev').style.display='none';
+  try{
+    const result=await callClaude(text||'이 채용공고 이미지에서 일정을 추출해주세요.',imgB64);
+    parsed.text=result;showPrev('text-prev',result);document.getElementById('btn-text-add').style.display='flex';
+    setSt('text-st','✅ '+result.length+'개 공고 분석 완료','ok');
+  }catch(e){setSt('text-st','❌ '+e.message,'err');}
+  finally{btn.disabled=false;btn.textContent='✨ AI 분석';}
+}
+
+function showPrev(id,data){
+  const el=document.getElementById(id);if(!data?.length){el.style.display='none';return;}
+  el.innerHTML='<h5>✦ 추출된 일정</h5>'+data.map(item=>'<div class="pi"><div class="pi-co">'+item.company+'</div><div class="pi-job">'+item.job+'</div><div class="pi-tags">'+(item.events||[]).map(ev=>'<span class="pt '+ev.type+'">['+ev.type+'] '+fmt(ev.date)+'</span>').join('')+'</div></div>').join('');
+  el.style.display='block';
+}
+
+async function addParsed(src){
+  const data=parsed[src];if(!data)return;
+  const arr=[];data.forEach(item=>(item.events||[]).forEach(ev=>arr.push({company:item.company,job:item.job,type:ev.type,date:ev.date,link:item.link||null})));
+  if(!arr.length)return;
+  await insertEvents(arr);
+  setSt(src==='url'?'url-st':'text-st','✅ '+arr.length+'개 일정 추가됨!','ok');
+  parsed[src]=null;
+  const d=new Date(arr[0].date);curY=d.getFullYear();curM=d.getMonth();renderAll();
+}
+
+async function addManual(){
+  const co=document.getElementById('m-co').value.trim();
+  const job=document.getElementById('m-job').value.trim();
+  const type=document.getElementById('m-type').value;
+  const date=document.getElementById('m-date').value;
+  const time=document.getElementById('m-time').value||'23:59';
+  const link=document.getElementById('m-link').value.trim()||null;
+  if(!co||!job||!date)return setSt('manual-st','❌ 기업명, 직무, 날짜는 필수입니다','err');
+  await insertEvents([{company:co,job,type,date:date+'T'+time+':00',link}]);
+  setSt('manual-st','✅ 추가됐습니다!','ok');
+  ['m-co','m-job','m-link'].forEach(id=>document.getElementById(id).value='');
+  const d=new Date(date+'T'+time+':00');curY=d.getFullYear();curM=d.getMonth();renderAll();
+}
+
+function setupDrop(){
+  const z=document.getElementById('dz');
+  z.addEventListener('dragover',e=>{e.preventDefault();z.classList.add('over');});
+  z.addEventListener('dragleave',()=>z.classList.remove('over'));
+  z.addEventListener('drop',e=>{e.preventDefault();z.classList.remove('over');const f=e.dataTransfer.files[0];if(f?.type.startsWith('image/'))procImg(f);});
+}
+function handleImg(e){const f=e.target.files[0];if(f)procImg(f);}
+function procImg(file){
+  const r=new FileReader();
+  r.onload=e=>{imgB64=e.target.result.split(',')[1];const p=document.getElementById('img-prev');p.src=e.target.result;p.style.display='block';document.getElementById('text-inp').placeholder='이미지 업로드 완료! AI 분석 버튼을 눌러주세요.';};
+  r.readAsDataURL(file);
+}
+
+function setSt(id,msg,type){
+  const el=document.getElementById(id);if(!el)return;
+  el.className='st'+(type?' '+type:'');el.textContent=msg;
+  if(type==='ok')setTimeout(()=>el.className='st',4000);
+}
+function fmt(s){const d=new Date(s);return d.getFullYear()+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
+</script>
+</body>
+</html>
