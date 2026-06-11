@@ -361,25 +361,47 @@ function logout(){
 }
 
 async function loadGist(){
+  // 1. 저장된 GIST_ID로 먼저 시도
   if(GIST_ID){
     try{
       const r=await fetch('https://api.github.com/gists/'+GIST_ID,{headers:{Authorization:'token '+TOKEN}});
       if(r.ok){
         const d=await r.json();
         const c=d.files['recruitment_events.json']?.content;
+        if(c){events=JSON.parse(c);console.log('Gist 로드 완료:',events.length,'개');return;}
+      }
+    }catch(e){}
+  }
+  // 2. 기존 Gist 목록에서 채용 일정 캘린더 찾기
+  console.log('기존 Gist 검색 중...');
+  try{
+    let page=1;
+    while(page<=3){
+      const r=await fetch('https://api.github.com/gists?per_page=100&page='+page,{headers:{Authorization:'token '+TOKEN}});
+      if(!r.ok) break;
+      const list=await r.json();
+      if(!list.length) break;
+      const found=list.find(g=>g.files['recruitment_events.json']);
+      if(found){
+        GIST_ID=found.id;
+        localStorage.setItem('gist_id',GIST_ID);
+        const r2=await fetch('https://api.github.com/gists/'+GIST_ID,{headers:{Authorization:'token '+TOKEN}});
+        const d=await r2.json();
+        const c=d.files['recruitment_events.json']?.content;
         if(c) events=JSON.parse(c);
-        console.log('Gist 로드 완료, 일정 수:', events.length);
+        console.log('기존 Gist 찾음! 일정:',events.length,'개');
         return;
       }
-    }catch(e){console.error('Gist 로드 오류:',e);}
-  }
-  // 새 Gist 생성
+      page++;
+    }
+  }catch(e){console.error('Gist 검색 오류:',e);}
+  // 3. 없으면 새로 생성
   console.log('새 Gist 생성 중...');
   const r=await fetch('https://api.github.com/gists',{method:'POST',headers:{Authorization:'token '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({description:'채용 일정 캘린더',public:false,files:{'recruitment_events.json':{content:'[]'}}})});
   const d=await r.json();
   GIST_ID=d.id;
   localStorage.setItem('gist_id',GIST_ID);
-  console.log('새 Gist 생성됨:', GIST_ID);
+  console.log('새 Gist 생성됨:',GIST_ID);
 }
 
 async function saveGist(){
