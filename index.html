@@ -285,7 +285,7 @@ header h1{color:#fff;font-size:17px;font-weight:700;display:flex;align-items:cen
 <div id="saving">💾 저장 중...</div>
 
 <script>
-let TOKEN='',GIST_ID='',CLAUDE_KEY='',events=[],parsed={url:null,text:null},imgB64=null,curY,curM,saveTimer=null;
+let TOKEN='',GIST_ID='',CLAUDE_KEY='',events=[],parsed={url:null,text:null},imgB64=null,imgMime='image/png',curY,curM,saveTimer=null;
 
 (async function(){
   const n=new Date(); curY=n.getFullYear(); curM=n.getMonth();
@@ -481,10 +481,10 @@ function tab(name){
   document.getElementById('tp-'+name).classList.add('active');
 }
 
-async function callClaude(prompt,img=null){
+async function callClaude(prompt,img=null,mime='image/png'){
   if(!CLAUDE_KEY) throw new Error('Claude API 키를 먼저 헤더에 입력해주세요');
   const content=[];
-  if(img)content.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:img}});
+  if(img)content.push({type:'image',source:{type:'base64',media_type:mime,data:img}});
   content.push({type:'text',text:prompt});
   const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':CLAUDE_KEY,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:1000,system:'한국 금융권 채용공고에서 일정 정보를 추출하세요.\nJSON 배열만 반환. 다른 텍스트 없이:\n[{"company":"기업명","job":"직무명","events":[{"type":"서류시작|서류마감|면접","date":"YYYY-MM-DDTHH:mm:ss"}],"link":"URL or null"}]\n시간 미기재시 T23:59:00.',messages:[{role:'user',content}]})});
   if(!r.ok){const e=await r.json();throw new Error(e.error?.message||'API 오류');}
@@ -515,7 +515,7 @@ async function analyzeText(){
   setSt('text-st','⏳ AI 분석 중...','info');
   document.getElementById('btn-text-add').style.display='none';document.getElementById('text-prev').style.display='none';
   try{
-    const result=await callClaude(text||'이 채용공고 이미지에서 일정을 추출해주세요.',imgB64);
+    const result=await callClaude(text||'이 채용공고 이미지에서 일정을 추출해주세요.',imgB64,imgMime);
     parsed.text=result;showPrev('text-prev',result);document.getElementById('btn-text-add').style.display='flex';
     setSt('text-st','✅ '+result.length+'개 공고 분석 완료','ok');
   }catch(e){setSt('text-st','❌ '+e.message,'err');}
@@ -561,7 +561,13 @@ function setupDrop(){
 function handleImg(e){const f=e.target.files[0];if(f)procImg(f);}
 function procImg(file){
   const r=new FileReader();
-  r.onload=e=>{imgB64=e.target.result.split(',')[1];const p=document.getElementById('img-prev');p.src=e.target.result;p.style.display='block';document.getElementById('text-inp').placeholder='이미지 업로드 완료! AI 분석 버튼을 눌러주세요.';};
+  r.onload=e=>{
+    const dataUrl=e.target.result;
+    imgB64=dataUrl.split(',')[1];
+    imgMime=(dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/)||[])[1]||'image/png';
+    const p=document.getElementById('img-prev');p.src=dataUrl;p.style.display='block';
+    document.getElementById('text-inp').placeholder='이미지 업로드 완료! AI 분석 버튼을 눌러주세요.';
+  };
   r.readAsDataURL(file);
 }
 
